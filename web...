@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Upload Ảnh</title>
+</head>
+<body style="text-align:center; padding:40px; font-family:sans-serif;">
+  <h2>Chọn hoặc Chụp Ảnh</h2>
+  <!-- capture="environment" cho phép mở thẳng camera chụp ảnh trên điện thoại -->
+  <input type="file" id="photo" accept="image/*" capture="environment" style="display:none">
+  <button onclick="document.getElementById('photo').click()" style="padding:15px 25px; font-size:16px;">📸 Chọn/Chụp ảnh</button>
+  <p id="status" style="margin-top:20px; font-weight:bold;"></p>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const session = urlParams.get('session');
+    const FIREBASE_URL = "https://YOUR_PROJECT_ID.firebaseio.com"; // Thay bằng URL Firebase của bạn
+
+    document.getElementById('photo').onchange = async function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      document.getElementById('status').innerText = "Đang tải ảnh...";
+
+      // Upload ảnh lên dịch vụ lưu trữ (Ví dụ: Imgur API)
+      const formData = new FormData();
+      formData.append('image', file);
+
+      try {
+        const res = await fetch('https://api.imgur.com/3/image', {
+          method: 'POST',
+          headers: { Authorization: 'Client-ID YOUR_IMGUR_CLIENT_ID' }, // Thay Client-ID Imgur
+          body: formData
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          // Đẩy URL ảnh thu được về Firebase Database
+          await fetch(`${FIREBASE_URL}/sessions/${session}.json`, {
+            method: 'PUT',
+            body: JSON.stringify({ url: data.data.link })
+          });
+          document.getElementById('status').innerText = "✅ Thành công! Bạn có thể đóng trang.";
+        }
+      } catch (err) {
+        document.getElementById('status').innerText = "❌ Lỗi tải ảnh, thử lại!";
+      }
+    };
+  </script>
+</body>
+</html>
