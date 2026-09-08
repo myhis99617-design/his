@@ -8,25 +8,31 @@
   <style>
     body { font-family: sans-serif; text-align: center; margin: 0; padding: 15px; background: #f4f6f8; }
     .btn { background: #007bff; color: white; border: none; padding: 12px 18px; font-size: 15px; border-radius: 6px; cursor: pointer; margin: 5px; }
-    .btn-success { background: #28a745; font-weight: bold; }
-    .btn-warning { background: #ffc107; color: #000; }
+    .btn-gallery { background: #17a2b8; }
+    .btn-success { background: #28a745; font-weight: bold; width: 90%; margin-top: 10px; }
+    .btn-rotate { background: #ffc107; color: #000; }
     #img-container { max-width: 100%; max-height: 380px; margin: 15px 0; display: none; background: #e9ecef; }
     img { max-width: 100%; }
   </style>
 </head>
 <body>
-  <h2>📸 Chụp & Chỉnh Sửa Ảnh</h2>
+  <h2>📸 Chụp hoặc Chọn Ảnh</h2>
   
-  <input type="file" id="photo" accept="image/*" capture="environment" style="display:none">
-  <button class="btn" onclick="document.getElementById('photo').click()">📸 Chụp / Chọn ảnh</button>
+  <!-- Đầu vào riêng cho Máy ảnh và Thư viện -->
+  <input type="file" id="photoCamera" accept="image/*" capture="environment" style="display:none">
+  <input type="file" id="photoGallery" accept="image/*" style="display:none">
+
+  <!-- 2 Nút lựa chọn rõ ràng -->
+  <button class="btn" onclick="document.getElementById('photoCamera').click()">📸 Chụp ảnh mới</button>
+  <button class="btn btn-gallery" onclick="document.getElementById('photoGallery').click()">🖼️ Chọn từ thư viện</button>
 
   <div id="img-container">
     <img id="image" src="">
   </div>
 
   <div id="tools" style="display:none;">
-    <button class="btn btn-warning" onclick="cropper.rotate(-90)">↺ Xoay trái</button>
-    <button class="btn btn-warning" onclick="cropper.rotate(90)">↻ Xoay phải</button>
+    <button class="btn btn-rotate" onclick="cropper.rotate(-90)">↺ Xoay trái</button>
+    <button class="btn btn-rotate" onclick="cropper.rotate(90)">↻ Xoay phải</button>
     <br>
     <button class="btn btn-success" onclick="uploadImage()">✅ XÁC NHẬN & GỬI LÊN PC</button>
   </div>
@@ -37,14 +43,12 @@
   <script>
     const urlParams = new URLSearchParams(window.location.search);
     const session = urlParams.get('session');
-    
-    // Đã điền sẵn URL Firebase của bạn
     const FIREBASE_URL = "https://my-qr-upload-default-rtdb.firebaseio.com";
 
     let cropper = null;
     const image = document.getElementById('image');
 
-    document.getElementById('photo').onchange = function(e) {
+    function handleFileSelect(e) {
       const file = e.target.files[0];
       if (!file) return;
 
@@ -62,13 +66,17 @@
         });
       };
       reader.readAsDataURL(file);
-    };
+    }
+
+    // Gán sự kiện xử lý ảnh cho cả 2 nút
+    document.getElementById('photoCamera').onchange = handleFileSelect;
+    document.getElementById('photoGallery').onchange = handleFileSelect;
 
     async function uploadImage() {
       if (!cropper) return;
-      document.getElementById('status').innerText = "⏳ Đang nén ảnh & chuyển về máy tính...";
+      document.getElementById('status').style.color = "#d9534f";
+      document.getElementById('status').innerText = "⏳ Đang xử lý & nén ảnh gửi về PC...";
 
-      // Cắt ảnh và xuất ra dạng chuỗi Base64 đã nén nhẹ
       const canvas = cropper.getCroppedCanvas({ maxWidth: 1280, maxHeight: 1280 });
       const base64Image = canvas.toDataURL('image/jpeg', 0.8);
 
@@ -81,12 +89,12 @@
 
         if (res.ok) {
           document.getElementById('status').style.color = "#28a745";
-          document.getElementById('status').innerText = "✅ Đã gửi xong! Màn hình PC sẽ tự chọn ảnh ngay.";
+          document.getElementById('status').innerText = "✅ Đã gửi thành công! Hãy kiểm tra màn hình máy tính.";
         } else {
-          document.getElementById('status').innerText = "❌ Lỗi gửi dữ liệu lên Firebase!";
+          document.getElementById('status').innerText = "❌ Lỗi kết nối Firebase!";
         }
       } catch (err) {
-        document.getElementById('status').innerText = "❌ Lỗi kết nối mạng, thử lại!";
+        document.getElementById('status').innerText = "❌ Lỗi đường truyền mạng!";
       }
     }
   </script>
