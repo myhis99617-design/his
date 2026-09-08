@@ -35,7 +35,7 @@
 
         if (data.success) {
           // Đẩy URL ảnh thu được về Firebase Database
-          await fetch(`${FIREBASE_URL}/sessions/${session}.json`, {
+          await fetch(`${https://my-qr-upload-default-rtdb.firebaseio.com}/sessions/${session}.json`, {
             method: 'PUT',
             body: JSON.stringify({ url: data.data.link })
           });
