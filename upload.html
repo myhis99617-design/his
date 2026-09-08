@@ -1,50 +1,94 @@
 <!DOCTYPE html>
-<html>
+<html lang="vi">
 <head>
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Upload Ảnh</title>
+  <title>Chụp & Chỉnh Sửa Ảnh</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
+  <style>
+    body { font-family: sans-serif; text-align: center; margin: 0; padding: 15px; background: #f4f6f8; }
+    .btn { background: #007bff; color: white; border: none; padding: 12px 18px; font-size: 15px; border-radius: 6px; cursor: pointer; margin: 5px; }
+    .btn-success { background: #28a745; font-weight: bold; }
+    .btn-warning { background: #ffc107; color: #000; }
+    #img-container { max-width: 100%; max-height: 380px; margin: 15px 0; display: none; background: #e9ecef; }
+    img { max-width: 100%; }
+  </style>
 </head>
-<body style="text-align:center; padding:40px; font-family:sans-serif;">
-  <h2>Chọn hoặc Chụp Ảnh</h2>
-  <!-- capture="environment" cho phép mở thẳng camera chụp ảnh trên điện thoại -->
+<body>
+  <h2>📸 Chụp & Chỉnh Sửa Ảnh</h2>
+  
   <input type="file" id="photo" accept="image/*" capture="environment" style="display:none">
-  <button onclick="document.getElementById('photo').click()" style="padding:15px 25px; font-size:16px;">📸 Chọn/Chụp ảnh</button>
-  <p id="status" style="margin-top:20px; font-weight:bold;"></p>
+  <button class="btn" onclick="document.getElementById('photo').click()">📸 Chụp / Chọn ảnh</button>
 
+  <div id="img-container">
+    <img id="image" src="">
+  </div>
+
+  <div id="tools" style="display:none;">
+    <button class="btn btn-warning" onclick="cropper.rotate(-90)">↺ Xoay trái</button>
+    <button class="btn btn-warning" onclick="cropper.rotate(90)">↻ Xoay phải</button>
+    <br>
+    <button class="btn btn-success" onclick="uploadImage()">✅ XÁC NHẬN & GỬI LÊN PC</button>
+  </div>
+
+  <p id="status" style="font-weight:bold; margin-top:15px; color:#d9534f;"></p>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
   <script>
     const urlParams = new URLSearchParams(window.location.search);
     const session = urlParams.get('session');
-    const FIREBASE_URL = "https://YOUR_PROJECT_ID.firebaseio.com"; // Thay bằng URL Firebase của bạn
+    
+    // Đã điền sẵn URL Firebase của bạn
+    const FIREBASE_URL = "https://my-qr-upload-default-rtdb.firebaseio.com";
 
-    document.getElementById('photo').onchange = async function(e) {
+    let cropper = null;
+    const image = document.getElementById('image');
+
+    document.getElementById('photo').onchange = function(e) {
       const file = e.target.files[0];
       if (!file) return;
-      document.getElementById('status').innerText = "Đang tải ảnh...";
 
-      // Upload ảnh lên dịch vụ lưu trữ (Ví dụ: Imgur API)
-      const formData = new FormData();
-      formData.append('image', file);
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        image.src = event.target.result;
+        document.getElementById('img-container').style.display = 'block';
+        document.getElementById('tools').style.display = 'block';
+
+        if (cropper) cropper.destroy();
+        cropper = new Cropper(image, {
+          viewMode: 1,
+          autoCropArea: 0.9,
+          responsive: true
+        });
+      };
+      reader.readAsDataURL(file);
+    };
+
+    async function uploadImage() {
+      if (!cropper) return;
+      document.getElementById('status').innerText = "⏳ Đang nén ảnh & chuyển về máy tính...";
+
+      // Cắt ảnh và xuất ra dạng chuỗi Base64 đã nén nhẹ
+      const canvas = cropper.getCroppedCanvas({ maxWidth: 1280, maxHeight: 1280 });
+      const base64Image = canvas.toDataURL('image/jpeg', 0.8);
 
       try {
-        const res = await fetch('https://api.imgur.com/3/image', {
-          method: 'POST',
-          headers: { Authorization: 'Client-ID YOUR_IMGUR_CLIENT_ID' }, // Thay Client-ID Imgur
-          body: formData
+        const res = await fetch(`${FIREBASE_URL}/sessions/${session}.json`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: base64Image })
         });
-        const data = await res.json();
 
-        if (data.success) {
-          // Đẩy URL ảnh thu được về Firebase Database
-          await fetch(`${https://my-qr-upload-default-rtdb.firebaseio.com}/sessions/${session}.json`, {
-            method: 'PUT',
-            body: JSON.stringify({ url: data.data.link })
-          });
-          document.getElementById('status').innerText = "✅ Thành công! Bạn có thể đóng trang.";
+        if (res.ok) {
+          document.getElementById('status').style.color = "#28a745";
+          document.getElementById('status').innerText = "✅ Đã gửi xong! Màn hình PC sẽ tự chọn ảnh ngay.";
+        } else {
+          document.getElementById('status').innerText = "❌ Lỗi gửi dữ liệu lên Firebase!";
         }
       } catch (err) {
-        document.getElementById('status').innerText = "❌ Lỗi tải ảnh, thử lại!";
+        document.getElementById('status').innerText = "❌ Lỗi kết nối mạng, thử lại!";
       }
-    };
+    }
   </script>
 </body>
 </html>
