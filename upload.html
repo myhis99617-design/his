@@ -3,36 +3,41 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chụp & Chỉnh Sửa Ảnh HD</title>
+  <title>Scan Tài Liệu HD & Dung Lượng Nhẹ</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
   <style>
     body { font-family: sans-serif; text-align: center; margin: 0; padding: 15px; background: #f4f6f8; }
-    .btn { background: #007bff; color: white; border: none; padding: 12px 16px; font-size: 14px; border-radius: 6px; cursor: pointer; margin: 4px; }
+    .btn { background: #007bff; color: white; border: none; padding: 10px 14px; font-size: 14px; border-radius: 6px; cursor: pointer; margin: 4px; }
     .btn-gallery { background: #17a2b8; }
-    .btn-sharpen { background: #6f42c1; font-weight: bold; }
+    .btn-mode { background: #6c757d; }
+    .btn-mode.active { background: #6f42c1; font-weight: bold; border: 2px solid #333; }
     .btn-success { background: #28a745; font-weight: bold; width: 90%; margin-top: 10px; padding: 14px; font-size: 16px; }
     .btn-rotate { background: #ffc107; color: #000; }
-    #img-container { max-width: 100%; max-height: 380px; margin: 15px 0; display: none; background: #e9ecef; }
+    #img-container { max-width: 100%; max-height: 360px; margin: 15px 0; display: none; background: #e9ecef; }
     img { max-width: 100%; }
+    .mode-group { margin: 10px 0; }
   </style>
 </head>
 <body>
-  <h2>📸 Chụp hoặc Chọn Ảnh HD</h2>
+  <h2>📄 Scan & Nén Tài Liệu</h2>
   
   <input type="file" id="photoCamera" accept="image/*" capture="environment" style="display:none">
   <input type="file" id="photoGallery" accept="image/*" style="display:none">
 
-  <button class="btn" onclick="document.getElementById('photoCamera').click()">📸 Chụp ảnh mới</button>
-  <button class="btn btn-gallery" onclick="document.getElementById('photoGallery').click()">🖼️ Chọn từ thư viện</button>
+  <button class="btn" onclick="document.getElementById('photoCamera').click()">📸 Chụp mới</button>
+  <button class="btn btn-gallery" onclick="document.getElementById('photoGallery').click()">🖼️ Chọn từ máy</button>
 
   <div id="img-container">
     <img id="image" src="">
   </div>
 
   <div id="tools" style="display:none;">
+    <div class="mode-group">
+      <button class="btn btn-mode active" id="btnScanMode" onclick="setMode('scan')">📄 Scan Chữ Nét (Siêu Nhẹ)</button>
+      <button class="btn btn-mode" id="btnColorMode" onclick="setMode('color')">🎨 Ảnh Màu Gốc</button>
+    </div>
     <button class="btn btn-rotate" onclick="cropper.rotate(-90)">↺ Xoay trái</button>
     <button class="btn btn-rotate" onclick="cropper.rotate(90)">↻ Xoay phải</button>
-    <button class="btn btn-sharpen" id="btnSharpen" onclick="toggleSharpen()">✨ Bật làm nét HD</button>
     <br>
     <button class="btn btn-success" onclick="uploadImage()">✅ XÁC NHẬN & GỬI LÊN PC</button>
   </div>
@@ -46,7 +51,7 @@
     const FIREBASE_URL = "https://my-qr-upload-default-rtdb.firebaseio.com";
 
     let cropper = null;
-    let isSharpenActive = false;
+    let currentMode = 'scan'; // Mặc định bật Scan tài liệu
     const image = document.getElementById('image');
 
     function handleFileSelect(e) {
@@ -62,7 +67,7 @@
         if (cropper) cropper.destroy();
         cropper = new Cropper(image, {
           viewMode: 1,
-          autoCropArea: 0.95,
+          autoCropArea: 0.98,
           responsive: true
         });
       };
@@ -72,62 +77,49 @@
     document.getElementById('photoCamera').onchange = handleFileSelect;
     document.getElementById('photoGallery').onchange = handleFileSelect;
 
-    function toggleSharpen() {
-      isSharpenActive = !isSharpenActive;
-      const btn = document.getElementById('btnSharpen');
-      if (isSharpenActive) {
-        btn.style.background = "#e83e8c";
-        btn.innerText = "✨ Đã bật làm nét HD";
-      } else {
-        btn.style.background = "#6f42c1";
-        btn.innerText = "✨ Bật làm nét HD";
-      }
+    function setMode(mode) {
+      currentMode = mode;
+      document.getElementById('btnScanMode').classList.toggle('active', mode === 'scan');
+      document.getElementById('btnColorMode').classList.toggle('active', mode === 'color');
     }
 
-    // Thuật toán làm nét và xử lý tương phản trên Canvas
-    function applySharpenFilter(canvas) {
+    // Thuật toán Scan Tài Liệu: Lọc bóng tối + Tăng độ tương phản + Tối ưu màu trắng
+    function applyDocumentScanFilter(canvas) {
       const ctx = canvas.getContext('2d');
       const w = canvas.width;
       const h = canvas.height;
-
-      // 1. Tăng nhẹ độ tương phản và độ sáng
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = w;
-      tempCanvas.height = h;
-      const tempCtx = tempCanvas.getContext('2d');
-      tempCtx.filter = 'contrast(112%) brightness(102%) saturate(105%)';
-      tempCtx.drawImage(canvas, 0, 0);
-
-      // 2. Thuật toán Lọc Ma trận làm nét (3x3 Sharpen Kernel)
-      const imgData = tempCtx.getImageData(0, 0, w, h);
+      const imgData = ctx.getImageData(0, 0, w, h);
       const data = imgData.data;
-      const buff = new Uint8ClampedArray(data);
-      const mix = 0.4; // Độ mạnh của hiệu ứng làm nét
 
-      for (let y = 1; y < h - 1; y++) {
-        for (let x = 1; x < w - 1; x++) {
-          const idx = (y * w + x) * 4;
-          for (let c = 0; c < 3; c++) {
-            const center = buff[idx + c];
-            const up = buff[((y - 1) * w + x) * 4 + c];
-            const down = buff[((y + 1) * w + x) * 4 + c];
-            const left = buff[(y * w + (x - 1)) * 4 + c];
-            const right = buff[(y * w + (x + 1)) * 4 + c];
+      for (let i = 0; i < data.length; i += 4) {
+        // Chuyển về thang độ xám (Grayscale)
+        let gray = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
 
-            const sharpened = center * 5 - (up + down + left + right);
-            data[idx + c] = Math.min(255, Math.max(0, center * (1 - mix) + sharpened * mix));
-          }
+        // Thuật toán xử lý tài liệu:
+        // Phân vùng: Nền giấy đẩy về trắng tinh (255), Chữ đẩy về đen/xám đậm
+        if (gray > 130) {
+          // Xóa bóng đổ/nhiễu xám trên giấy -> biến thành nền trắng phẳng
+          gray = Math.min(255, gray * 1.35);
+          if (gray > 210) gray = 255; 
+        } else {
+          // Tăng độ đậm của chữ in / chữ viết tay
+          gray = Math.max(0, gray * 0.7);
         }
+
+        data[i]     = gray; // R
+        data[i + 1] = gray; // G
+        data[i + 2] = gray; // B
       }
+
       ctx.putImageData(imgData, 0, 0);
     }
 
     async function uploadImage() {
       if (!cropper) return;
       document.getElementById('status').style.color = "#d9534f";
-      document.getElementById('status').innerText = "⏳ Đang nâng phân giải 2K & nén ảnh gửi về PC...";
+      document.getElementById('status').innerText = "⏳ Đang quét nét & nén siêu nhẹ...";
 
-      // Tăng độ phân giải tối đa lên 2048px (Chuẩn 2K sắc nét)
+      // Giữ độ phân giải sắc nét 2048px (2K)
       const canvas = cropper.getCroppedCanvas({ 
         maxWidth: 2048, 
         maxHeight: 2048,
@@ -135,13 +127,14 @@
         imageSmoothingQuality: 'high'
       });
 
-      // Áp dụng thuật toán làm nét nếu người dùng bật nút
-      if (isSharpenActive) {
-        applySharpenFilter(canvas);
+      // Nếu ở chế độ Scan -> Áp dụng bộ lọc xóa nền trắng & làm nét chữ
+      if (currentMode === 'scan') {
+        applyDocumentScanFilter(canvas);
       }
 
-      // Xuất ảnh JPG chất lượng cao (0.88)
-      const base64Image = canvas.toDataURL('image/jpeg', 0.88);
+      // Xuất ảnh nén JPEG (nhờ nền trắng phẳng nên nén rất mạnh mà không mờ chữ)
+      const quality = (currentMode === 'scan') ? 0.65 : 0.85;
+      const base64Image = canvas.toDataURL('image/jpeg', quality);
 
       try {
         const res = await fetch(`${FIREBASE_URL}/sessions/${session}.json`, {
@@ -152,7 +145,8 @@
 
         if (res.ok) {
           document.getElementById('status').style.color = "#28a745";
-          document.getElementById('status').innerText = "✅ Đã gửi thành công! Hãy kiểm tra màn hình máy tính.";
+          const approxSize = Math.round((base64Image.length * 3 / 4) / 1024);
+          document.getElementById('status').innerText = `✅ Đã gửi! Dung lượng ảnh chỉ: ~${approxSize} KB`;
         } else {
           document.getElementById('status').innerText = "❌ Lỗi kết nối Firebase!";
         }
