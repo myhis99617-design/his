@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Scan Giữ Màu - Sắc Nét & Nén Nhẹ</title>
+  <title>Scan Giữ Màu - Tùy Chỉnh Độ Sáng</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; text-align: center; margin: 0; padding: 15px; background: #f4f6f8; color: #333; }
@@ -12,12 +12,17 @@
     .btn-gallery { background: #17a2b8; }
     .btn-success { background: #28a745; font-weight: bold; width: 100%; max-width: 400px; margin-top: 15px; padding: 14px; font-size: 16px; border-radius: 8px; border: none; color: white; cursor: pointer; }
     .btn-rotate { background: #ffc107; color: #000; }
-    #img-container { max-width: 100%; max-height: 380px; margin: 15px 0; display: none; background: #e9ecef; border-radius: 8px; overflow: hidden; }
+    #img-container { max-width: 100%; max-height: 380px; margin: 15px 0; display: none; background: #e9ecef; border-radius: 8px; overflow: hidden; transition: filter 0.1s ease; }
     img { max-width: 100%; }
+    
+    /* Giao diện thanh trượt độ sáng */
+    .slider-card { max-width: 380px; margin: 10px auto; background: #ffffff; padding: 10px 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); }
+    .slider-card label { font-size: 14px; font-weight: 600; color: #444; }
+    .slider-card input { width: 85%; margin-top: 8px; cursor: pointer; }
   </style>
 </head>
 <body>
-  <h2>✨ Scan Giữ Màu Gốc - Siêu Nét & Nén Siêu Nhỏ</h2>
+  <h2>✨ Scan Giữ Màu & Tùy Chỉnh Độ Sáng</h2>
   
   <input type="file" id="photoCamera" accept="image/*" capture="environment" style="display:none">
   <input type="file" id="photoGallery" accept="image/*" style="display:none">
@@ -30,6 +35,12 @@
   </div>
 
   <div id="tools" style="display:none;">
+    <!-- Thanh điều chỉnh độ sáng -->
+    <div class="slider-card">
+      <label for="brightnessRange">☀️ Độ sáng ảnh: <span id="brightnessVal" style="color:#007bff;">100%</span></label><br>
+      <input type="range" id="brightnessRange" min="50" max="180" value="100" oninput="updateBrightness(this.value)">
+    </div>
+
     <button class="btn btn-rotate" onclick="cropper.rotate(-90)">↺ Xoay trái</button>
     <button class="btn btn-rotate" onclick="cropper.rotate(90)">↻ Xoay phải</button>
     <br>
@@ -45,6 +56,7 @@
     const FIREBASE_URL = "https://my-qr-upload-default-rtdb.firebaseio.com";
 
     let cropper = null;
+    let currentBrightness = 100;
     const image = document.getElementById('image');
 
     function handleFileSelect(e) {
@@ -56,6 +68,12 @@
         image.src = event.target.result;
         document.getElementById('img-container').style.display = 'block';
         document.getElementById('tools').style.display = 'block';
+
+        // Tự động reset độ sáng về 100% khi nạp ảnh mới
+        currentBrightness = 100;
+        document.getElementById('brightnessRange').value = 100;
+        document.getElementById('brightnessVal').innerText = '100%';
+        document.getElementById('img-container').style.filter = 'brightness(100%)';
 
         if (cropper) cropper.destroy();
         cropper = new Cropper(image, {
@@ -70,25 +88,32 @@
     document.getElementById('photoCamera').onchange = handleFileSelect;
     document.getElementById('photoGallery').onchange = handleFileSelect;
 
-    // Thuật toán làm nét viền đanh nét mà không làm nhòe lưới/sọc nhiễu
-    function applySmartSharpen(canvas) {
+    // Cập nhật giá trị hiển thị & hiệu ứng xem trước độ sáng
+    function updateBrightness(val) {
+      currentBrightness = val;
+      document.getElementById('brightnessVal').innerText = val + '%';
+      document.getElementById('img-container').style.filter = `brightness(${val}%)`;
+    }
+
+    // Áp dụng độ sáng tùy chỉnh + làm đanh nét viền lên canvas trước khi xuất file
+    function applySmartSharpen(canvas, brightness) {
       const ctx = canvas.getContext('2d');
       const w = canvas.width;
       const h = canvas.height;
 
-      // 1. Phục hồi màu sắc & tăng độ trong của giấy (Phẳng sáng như Scan)
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = w;
       tempCanvas.height = h;
       const tempCtx = tempCanvas.getContext('2d');
-      tempCtx.filter = 'contrast(118%) brightness(102%) saturate(108%)';
+      
+      // Áp dụng độ sáng do người dùng chỉnh vào bộ lọc Canvas
+      tempCtx.filter = `contrast(118%) brightness(${brightness}%) saturate(108%)`;
       tempCtx.drawImage(canvas, 0, 0);
 
-      // 2. Lọc điểm ảnh đanh viền (Làm nổi nét chữ và đường sóng tim)
       const imgData = tempCtx.getImageData(0, 0, w, h);
       const data = imgData.data;
       const buff = new Uint8ClampedArray(data);
-      const factor = 0.22; // Mức làm nét viền tối ưu
+      const factor = 0.22;
 
       for (let y = 1; y < h - 1; y++) {
         for (let x = 1; x < w - 1; x++) {
@@ -111,9 +136,8 @@
     async function uploadImage() {
       if (!cropper) return;
       document.getElementById('status').style.color = "#d9534f";
-      document.getElementById('status').innerText = "⏳ Đang xử lý scan nét căng & nén siêu nhỏ...";
+      document.getElementById('status').innerText = "⏳ Đang kết xuất ảnh & nén siêu nhẹ...";
 
-      // Giới hạn độ phân giải 2048px (Đủ hiển thị 2K sắc nét trên màn hình PC)
       const canvas = cropper.getCroppedCanvas({ 
         maxWidth: 2048, 
         maxHeight: 2048,
@@ -121,10 +145,9 @@
         imageSmoothingQuality: 'high'
       });
 
-      // Áp dụng bộ lọc Scan thông minh
-      applySmartSharpen(canvas);
+      // Truyền thông số độ sáng người dùng đã chọn vào hàm xử lý
+      applySmartSharpen(canvas, currentBrightness);
 
-      // Nén ở tỷ lệ 0.42 -> Giữ nét đường viền cực tốt, loại bỏ dung lượng thừa
       const base64Image = canvas.toDataURL('image/jpeg', 0.42);
 
       try {
@@ -137,7 +160,7 @@
         if (res.ok) {
           document.getElementById('status').style.color = "#28a745";
           const approxSize = Math.round((base64Image.length * 3 / 4) / 1024);
-          document.getElementById('status').innerText = `✅ Đã gửi! Dung lượng nén siêu nhỏ: ~${approxSize} KB`;
+          document.getElementById('status').innerText = `✅ Đã gửi! Dung lượng nén siêu nhẹ: ~${approxSize} KB`;
         } else {
           document.getElementById('status').innerText = "❌ Lỗi kết nối Firebase!";
         }
