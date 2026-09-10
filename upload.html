@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Scan Tài Liệu HD - QR Auto Upload</title>
+  <title>Scan Điện Tâm Đồ Siêu Nét</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; text-align: center; margin: 0; padding: 15px; background: #f4f6f8; color: #333; }
@@ -20,7 +20,7 @@
   </style>
 </head>
 <body>
-  <h2>✨ Scan & Nén Ảnh Siêu Rõ Nét</h2>
+  <h2>🫀 Scan Điện Tâm Đồ (ECG) Siêu Nét</h2>
   
   <input type="file" id="photoCamera" accept="image/*" capture="environment" style="display:none">
   <input type="file" id="photoGallery" accept="image/*" style="display:none">
@@ -34,7 +34,7 @@
 
   <div id="tools" style="display:none;">
     <div class="mode-group">
-      <button class="btn btn-mode active" id="btnScan" onclick="setMode('scan')">⚡ Scan Nét Nổi Màu (Nén Nhẹ)</button>
+      <button class="btn btn-mode active" id="btnECG" onclick="setMode('ecg')">✨ Lưới Rõ & Sóng Đậm (ECG)</button>
       <button class="btn btn-mode" id="btnOriginal" onclick="setMode('original')">🎨 Ảnh Gốc</button>
     </div>
     <button class="btn btn-rotate" onclick="cropper.rotate(-90)">↺ Xoay trái</button>
@@ -52,7 +52,7 @@
     const FIREBASE_URL = "https://my-qr-upload-default-rtdb.firebaseio.com";
 
     let cropper = null;
-    let currentMode = 'scan';
+    let currentMode = 'ecg';
     const image = document.getElementById('image');
 
     function handleFileSelect(e) {
@@ -80,84 +80,68 @@
 
     function setMode(mode) {
       currentMode = mode;
-      document.getElementById('btnScan').classList.toggle('active', mode === 'scan');
+      document.getElementById('btnECG').classList.toggle('active', mode === 'ecg');
       document.getElementById('btnOriginal').classList.toggle('active', mode === 'original');
     }
 
-    // Thuật toán Scan Quang Học: Khử bóng đổ + Cân bằng trắng tản sáng + Làm nét viền
-    function applyTrueScannerFilter(canvas) {
+    // Thuật toán xử lý chuyên dụng cho Điện Tâm Đồ (ECG)
+    function applyECGFilter(canvas) {
       const ctx = canvas.getContext('2d');
       const w = canvas.width;
       const h = canvas.height;
 
-      const bgCanvas = document.createElement('canvas');
-      bgCanvas.width = Math.max(1, Math.floor(w / 16));
-      bgCanvas.height = Math.max(1, Math.floor(h / 16));
-      const bgCtx = bgCanvas.getContext('2d');
-      bgCtx.drawImage(canvas, 0, 0, bgCanvas.width, bgCanvas.height);
+      // 1. Tăng độ tương phản tổng thể & giữ độ tươi của lưới đỏ hồng
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = w;
+      tempCanvas.height = h;
+      const tempCtx = tempCanvas.getContext('2d');
+      
+      tempCtx.filter = 'contrast(130%) brightness(105%) saturate(115%)';
+      tempCtx.drawImage(canvas, 0, 0);
 
-      const lightCanvas = document.createElement('canvas');
-      lightCanvas.width = w;
-      lightCanvas.height = h;
-      const lightCtx = lightCanvas.getContext('2d');
-      lightCtx.filter = 'blur(20px)';
-      lightCtx.drawImage(bgCanvas, 0, 0, w, h);
-
-      const imgData = ctx.getImageData(0, 0, w, h);
-      const bgData = lightCtx.getImageData(0, 0, w, h).data;
+      // 2. Phân tách dải màu: Đẩy nét đen cho sóng/chữ và làm trong nền giấy
+      const imgData = tempCtx.getImageData(0, 0, w, h);
       const data = imgData.data;
 
       for (let i = 0; i < data.length; i += 4) {
-        for (let c = 0; c < 3; c++) {
-          let orig = data[i + c];
-          let bg = bgData[i + c] || 1;
-          let normalized = (orig / bg) * 235;
+        let r = data[i], g = data[i+1], b = data[i+2];
 
-          if (normalized < 120) {
-            normalized = normalized * 0.75;
-          }
-          data[i + c] = Math.min(255, Math.max(0, normalized));
+        // Đường sóng / Ký tự đen (RGB đều thấp) -> Tăng độ đậm nét đanh
+        if (r < 115 && g < 115 && b < 115) {
+          data[i]     = Math.max(0, r * 0.6);
+          data[i + 1] = Math.max(0, g * 0.6);
+          data[i + 2] = Math.max(0, b * 0.6);
+        }
+        // Vùng nền sáng/bóng nhẹ -> Đẩy sáng để nổi bật lưới đỏ
+        else if (r > 190 && g > 175 && b > 175) {
+          data[i]     = Math.min(255, r * 1.06);
+          data[i + 1] = Math.min(255, g * 1.06);
+          data[i + 2] = Math.min(255, b * 1.06);
         }
       }
 
-      const buff = new Uint8ClampedArray(data);
-      const mix = 0.35;
-      for (let y = 1; y < h - 1; y++) {
-        for (let x = 1; x < w - 1; x++) {
-          const idx = (y * w + x) * 4;
-          for (let c = 0; c < 3; c++) {
-            const center = buff[idx + c];
-            const up = buff[((y - 1) * w + x) * 4 + c];
-            const down = buff[((y + 1) * w + x) * 4 + c];
-            const left = buff[(y * w + (x - 1)) * 4 + c];
-            const right = buff[(y * w + (x + 1)) * 4 + c];
-
-            const sharpened = center * 5 - (up + down + left + right);
-            data[idx + c] = Math.min(255, Math.max(0, center * (1 - mix) + sharpened * mix));
-          }
-        }
-      }
       ctx.putImageData(imgData, 0, 0);
     }
 
     async function uploadImage() {
       if (!cropper) return;
       document.getElementById('status').style.color = "#d9534f";
-      document.getElementById('status').innerText = "⏳ Đang quét nét 2K & nén siêu nhẹ...";
+      document.getElementById('status').innerText = "⏳ Đang xử lý nét & gửi...";
 
+      // Giữ độ phân giải cao để lưới nhỏ không bị mất/nhiễu
       const canvas = cropper.getCroppedCanvas({ 
-        maxWidth: 2048, 
-        maxHeight: 2048,
+        maxWidth: 2560, 
+        maxHeight: 2560,
         imageSmoothingEnabled: true,
         imageSmoothingQuality: 'high'
       });
 
-      if (currentMode === 'scan') {
-        applyTrueScannerFilter(canvas);
+      if (currentMode === 'ecg') {
+        applyECGFilter(canvas);
       }
 
-      const quality = (currentMode === 'scan') ? 0.75 : 0.85;
-      const base64Image = canvas.toDataURL('image/jpeg', quality);
+      // Giữ chất lượng nén ở mức 0.82 để nét sóng và lưới mịn đẹp
+      const base64Image = canvas.toDataURL('image/jpeg', 0.82);
 
       try {
         const res = await fetch(`${FIREBASE_URL}/sessions/${session}.json`, {
@@ -169,7 +153,7 @@
         if (res.ok) {
           document.getElementById('status').style.color = "#28a745";
           const approxSize = Math.round((base64Image.length * 3 / 4) / 1024);
-          document.getElementById('status').innerText = `✅ Đã gửi! Kích thước siêu nhẹ: ~${approxSize} KB`;
+          document.getElementById('status').innerText = `✅ Đã gửi thành công! Kích thước: ~${approxSize} KB`;
         } else {
           document.getElementById('status').innerText = "❌ Lỗi kết nối Firebase!";
         }
