@@ -1,41 +1,182 @@
-function applyTrueScannerFilter(canvas) {
-  const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scan Tài Liệu HD - QR Auto Upload</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; text-align: center; margin: 0; padding: 15px; background: #f4f6f8; color: #333; }
+    h2 { margin-top: 5px; font-size: 20px; }
+    .btn { background: #007bff; color: white; border: none; padding: 10px 14px; font-size: 14px; border-radius: 6px; cursor: pointer; margin: 4px; font-weight: 500; }
+    .btn-gallery { background: #17a2b8; }
+    .btn-mode { background: #6c757d; }
+    .btn-mode.active { background: #28a745; font-weight: bold; border: 2px solid #1e7e34; }
+    .btn-success { background: #28a745; font-weight: bold; width: 100%; max-width: 400px; margin-top: 12px; padding: 14px; font-size: 16px; border-radius: 8px; }
+    .btn-rotate { background: #ffc107; color: #000; }
+    #img-container { max-width: 100%; max-height: 380px; margin: 15px 0; display: none; background: #e9ecef; border-radius: 8px; overflow: hidden; }
+    img { max-width: 100%; }
+    .mode-group { margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h2>✨ Scan & Nén Ảnh Siêu Rõ Nét</h2>
+  
+  <input type="file" id="photoCamera" accept="image/*" capture="environment" style="display:none">
+  <input type="file" id="photoGallery" accept="image/*" style="display:none">
 
-  // Bước 1: Trích xuất bản đồ ánh sáng (Background Light Map) bằng cách thu nhỏ & làm mờ
-  const bgCanvas = document.createElement('canvas');
-  bgCanvas.width = Math.max(1, Math.floor(w / 16));
-  bgCanvas.height = Math.max(1, Math.floor(h / 16));
-  const bgCtx = bgCanvas.getContext('2d');
-  bgCtx.drawImage(canvas, 0, 0, bgCanvas.width, bgCanvas.height);
+  <button class="btn" onclick="document.getElementById('photoCamera').click()">📸 Chụp mới</button>
+  <button class="btn btn-gallery" onclick="document.getElementById('photoGallery').click()">🖼️ Chọn từ máy</button>
 
-  const lightCanvas = document.createElement('canvas');
-  lightCanvas.width = w;
-  lightCanvas.height = h;
-  const lightCtx = lightCanvas.getContext('2d');
-  lightCtx.filter = 'blur(20px)';
-  lightCtx.drawImage(bgCanvas, 0, 0, w, h);
+  <div id="img-container">
+    <img id="image" src="">
+  </div>
 
-  // Bước 2: Khử bóng đổ dựa trên phép chia mảng Pixel
-  const imgData = ctx.getImageData(0, 0, w, h);
-  const bgData = lightCtx.getImageData(0, 0, w, h).data;
-  const data = imgData.data;
+  <div id="tools" style="display:none;">
+    <div class="mode-group">
+      <button class="btn btn-mode active" id="btnScan" onclick="setMode('scan')">⚡ Scan Nét Nổi Màu (Nén Nhẹ)</button>
+      <button class="btn btn-mode" id="btnOriginal" onclick="setMode('original')">🎨 Ảnh Gốc</button>
+    </div>
+    <button class="btn btn-rotate" onclick="cropper.rotate(-90)">↺ Xoay trái</button>
+    <button class="btn btn-rotate" onclick="cropper.rotate(90)">↻ Xoay phải</button>
+    <br>
+    <button class="btn btn-success" onclick="uploadImage()">✅ XÁC NHẬN & GỬI LÊN PC</button>
+  </div>
 
-  for (let i = 0; i < data.length; i += 4) {
-    for (let c = 0; c < 3; c++) {
-      let orig = data[i + c];
-      let bg = bgData[i + c] || 1; // Tránh chia cho 0
-      
-      // Khử bóng râm không đều, đồng bộ nền trắng
-      let normalized = (orig / bg) * 235;
-      
-      // Đẩy độ đanh cho các đường sóng và nét chữ đen
-      if (normalized < 120) {
-        normalized = normalized * 0.75; 
-      }
-      data[i + c] = Math.min(255, Math.max(0, normalized));
+  <p id="status" style="font-weight:bold; margin-top:15px; color:#d9534f;"></p>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const session = urlParams.get('session');
+    const FIREBASE_URL = "https://my-qr-upload-default-rtdb.firebaseio.com";
+
+    let cropper = null;
+    let currentMode = 'scan';
+    const image = document.getElementById('image');
+
+    function handleFileSelect(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        image.src = event.target.result;
+        document.getElementById('img-container').style.display = 'block';
+        document.getElementById('tools').style.display = 'block';
+
+        if (cropper) cropper.destroy();
+        cropper = new Cropper(image, {
+          viewMode: 1,
+          autoCropArea: 0.98,
+          responsive: true
+        });
+      };
+      reader.readAsDataURL(file);
     }
-  }
-  ctx.putImageData(imgData, 0, 0);
-}
+
+    document.getElementById('photoCamera').onchange = handleFileSelect;
+    document.getElementById('photoGallery').onchange = handleFileSelect;
+
+    function setMode(mode) {
+      currentMode = mode;
+      document.getElementById('btnScan').classList.toggle('active', mode === 'scan');
+      document.getElementById('btnOriginal').classList.toggle('active', mode === 'original');
+    }
+
+    // Thuật toán Scan Quang Học: Khử bóng đổ + Cân bằng trắng tản sáng + Làm nét viền
+    function applyTrueScannerFilter(canvas) {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width;
+      const h = canvas.height;
+
+      const bgCanvas = document.createElement('canvas');
+      bgCanvas.width = Math.max(1, Math.floor(w / 16));
+      bgCanvas.height = Math.max(1, Math.floor(h / 16));
+      const bgCtx = bgCanvas.getContext('2d');
+      bgCtx.drawImage(canvas, 0, 0, bgCanvas.width, bgCanvas.height);
+
+      const lightCanvas = document.createElement('canvas');
+      lightCanvas.width = w;
+      lightCanvas.height = h;
+      const lightCtx = lightCanvas.getContext('2d');
+      lightCtx.filter = 'blur(20px)';
+      lightCtx.drawImage(bgCanvas, 0, 0, w, h);
+
+      const imgData = ctx.getImageData(0, 0, w, h);
+      const bgData = lightCtx.getImageData(0, 0, w, h).data;
+      const data = imgData.data;
+
+      for (let i = 0; i < data.length; i += 4) {
+        for (let c = 0; c < 3; c++) {
+          let orig = data[i + c];
+          let bg = bgData[i + c] || 1;
+          let normalized = (orig / bg) * 235;
+
+          if (normalized < 120) {
+            normalized = normalized * 0.75;
+          }
+          data[i + c] = Math.min(255, Math.max(0, normalized));
+        }
+      }
+
+      const buff = new Uint8ClampedArray(data);
+      const mix = 0.35;
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const idx = (y * w + x) * 4;
+          for (let c = 0; c < 3; c++) {
+            const center = buff[idx + c];
+            const up = buff[((y - 1) * w + x) * 4 + c];
+            const down = buff[((y + 1) * w + x) * 4 + c];
+            const left = buff[(y * w + (x - 1)) * 4 + c];
+            const right = buff[(y * w + (x + 1)) * 4 + c];
+
+            const sharpened = center * 5 - (up + down + left + right);
+            data[idx + c] = Math.min(255, Math.max(0, center * (1 - mix) + sharpened * mix));
+          }
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+    }
+
+    async function uploadImage() {
+      if (!cropper) return;
+      document.getElementById('status').style.color = "#d9534f";
+      document.getElementById('status').innerText = "⏳ Đang quét nét 2K & nén siêu nhẹ...";
+
+      const canvas = cropper.getCroppedCanvas({ 
+        maxWidth: 2048, 
+        maxHeight: 2048,
+        imageSmoothingEnabled: true,
+        imageSmoothingQuality: 'high'
+      });
+
+      if (currentMode === 'scan') {
+        applyTrueScannerFilter(canvas);
+      }
+
+      const quality = (currentMode === 'scan') ? 0.75 : 0.85;
+      const base64Image = canvas.toDataURL('image/jpeg', quality);
+
+      try {
+        const res = await fetch(`${FIREBASE_URL}/sessions/${session}.json`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: base64Image })
+        });
+
+        if (res.ok) {
+          document.getElementById('status').style.color = "#28a745";
+          const approxSize = Math.round((base64Image.length * 3 / 4) / 1024);
+          document.getElementById('status').innerText = `✅ Đã gửi! Kích thước siêu nhẹ: ~${approxSize} KB`;
+        } else {
+          document.getElementById('status').innerText = "❌ Lỗi kết nối Firebase!";
+        }
+      } catch (err) {
+        document.getElementById('status').innerText = "❌ Lỗi đường truyền mạng!";
+      }
+    }
+  </script>
+</body>
+</html>
