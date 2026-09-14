@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Scan Giữ Màu - Tùy Chỉnh Độ Sáng</title>
+  <title>Scan Giữ Màu - Tùy Chỉnh Độ Sáng Chuẩn 100%</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; text-align: center; margin: 0; padding: 15px; background: #f4f6f8; color: #333; }
@@ -15,7 +15,6 @@
     #img-container { max-width: 100%; max-height: 380px; margin: 15px 0; display: none; background: #e9ecef; border-radius: 8px; overflow: hidden; transition: filter 0.1s ease; }
     img { max-width: 100%; }
     
-    /* Giao diện thanh trượt độ sáng */
     .slider-card { max-width: 380px; margin: 10px auto; background: #ffffff; padding: 10px 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); }
     .slider-card label { font-size: 14px; font-weight: 600; color: #444; }
     .slider-card input { width: 85%; margin-top: 8px; cursor: pointer; }
@@ -35,7 +34,6 @@
   </div>
 
   <div id="tools" style="display:none;">
-    <!-- Thanh điều chỉnh độ sáng -->
     <div class="slider-card">
       <label for="brightnessRange">☀️ Độ sáng ảnh: <span id="brightnessVal" style="color:#007bff;">100%</span></label><br>
       <input type="range" id="brightnessRange" min="50" max="180" value="100" oninput="updateBrightness(this.value)">
@@ -69,7 +67,6 @@
         document.getElementById('img-container').style.display = 'block';
         document.getElementById('tools').style.display = 'block';
 
-        // Tự động reset độ sáng về 100% khi nạp ảnh mới
         currentBrightness = 100;
         document.getElementById('brightnessRange').value = 100;
         document.getElementById('brightnessVal').innerText = '100%';
@@ -88,32 +85,41 @@
     document.getElementById('photoCamera').onchange = handleFileSelect;
     document.getElementById('photoGallery').onchange = handleFileSelect;
 
-    // Cập nhật giá trị hiển thị & hiệu ứng xem trước độ sáng
     function updateBrightness(val) {
-      currentBrightness = val;
+      currentBrightness = parseInt(val);
       document.getElementById('brightnessVal').innerText = val + '%';
       document.getElementById('img-container').style.filter = `brightness(${val}%)`;
     }
 
-    // Áp dụng độ sáng tùy chỉnh + làm đanh nét viền lên canvas trước khi xuất file
-    function applySmartSharpen(canvas, brightness) {
+    // Xử lý độ sáng & làm nét trực tiếp vào từng mảng Pixel
+    function applyDirectPixelProcessing(canvas, brightnessPercent) {
       const ctx = canvas.getContext('2d');
       const w = canvas.width;
       const h = canvas.height;
 
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = w;
-      tempCanvas.height = h;
-      const tempCtx = tempCanvas.getContext('2d');
-      
-      // Áp dụng độ sáng do người dùng chỉnh vào bộ lọc Canvas
-      tempCtx.filter = `contrast(118%) brightness(${brightness}%) saturate(108%)`;
-      tempCtx.drawImage(canvas, 0, 0);
-
-      const imgData = tempCtx.getImageData(0, 0, w, h);
+      const imgData = ctx.getImageData(0, 0, w, h);
       const data = imgData.data;
+      const bFactor = brightnessPercent / 100;
+
+      // 1. Tăng/giảm độ sáng + tương phản trực tiếp từng điểm ảnh RGB
+      for (let i = 0; i < data.length; i += 4) {
+        let r = data[i] * bFactor;
+        let g = data[i+1] * bFactor;
+        let b = data[i+2] * bFactor;
+
+        // Tăng độ đanh tương phản nhẹ (Contrast 112%)
+        r = ((r - 128) * 1.12) + 128;
+        g = ((g - 128) * 1.12) + 128;
+        b = ((b - 128) * 1.12) + 128;
+
+        data[i]     = Math.min(255, Math.max(0, r));
+        data[i + 1] = Math.min(255, Math.max(0, g));
+        data[i + 2] = Math.min(255, Math.max(0, b));
+      }
+
+      // 2. Làm nét viền Unsharp Mask
       const buff = new Uint8ClampedArray(data);
-      const factor = 0.22;
+      const sharpenFactor = 0.20;
 
       for (let y = 1; y < h - 1; y++) {
         for (let x = 1; x < w - 1; x++) {
@@ -126,17 +132,18 @@
             const right = buff[(y * w + (x + 1)) * 4 + c];
 
             const sharpened = center * 5 - (up + down + left + right);
-            data[idx + c] = Math.min(255, Math.max(0, center * (1 - factor) + sharpened * factor));
+            data[idx + c] = Math.min(255, Math.max(0, center * (1 - sharpenFactor) + sharpened * sharpenFactor));
           }
         }
       }
+
       ctx.putImageData(imgData, 0, 0);
     }
 
     async function uploadImage() {
       if (!cropper) return;
       document.getElementById('status').style.color = "#d9534f";
-      document.getElementById('status').innerText = "⏳ Đang kết xuất ảnh & nén siêu nhẹ...";
+      document.getElementById('status').innerText = "⏳ Đang kết xuất độ sáng & nén siêu nhẹ...";
 
       const canvas = cropper.getCroppedCanvas({ 
         maxWidth: 2048, 
@@ -145,8 +152,8 @@
         imageSmoothingQuality: 'high'
       });
 
-      // Truyền thông số độ sáng người dùng đã chọn vào hàm xử lý
-      applySmartSharpen(canvas, currentBrightness);
+      // Can thiệp độ sáng điểm ảnh trực tiếp
+      applyDirectPixelProcessing(canvas, currentBrightness);
 
       const base64Image = canvas.toDataURL('image/jpeg', 0.42);
 
